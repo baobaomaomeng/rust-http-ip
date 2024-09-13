@@ -1,11 +1,16 @@
-#! /bin/sh
+#! /bin/bash
 
 cargo b --release
-sudo setcap cap_net_admin=eip /home/maomeng/trust/target/release/trust
-/home/maomeng/trust/target/release/trust
+ext=$?
+if [[ $ext -ne 0 ]]; then
+	exit $ext
+fi
+sudo setcap cap_net_admin=eip /home/maomeng/rust-http-ip/target/release/trust
+/home/maomeng/rust-http-ip/target/release/trust &
 
-# pid=$!
+pid=$!
 sudo ip addr add 192.168.0.1/24 dev tun0
 sudo ip link set up dev tun0
-# wait $pid
+trap "kill $pid" INT TERM
+wait $pid
  
