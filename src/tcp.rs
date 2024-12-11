@@ -220,7 +220,7 @@ impl Connection {
         }
         let ackn = tcph.acknowledgment_number();
         if let State::SynRcvd = self.state {
-            if Self::is_between_wrapped(
+            if is_between_wrapped(
                 self.send.una.wrapping_sub(1),
                 ackn,
                 self.send.nxt.wrapping_add(1),
@@ -234,7 +234,7 @@ impl Connection {
         }
 
         if let State::Estab | State::FinWait1 | State::FinWait2 = self.state {
-            if !Self::is_between_wrapped(self.send.una, ackn, self.send.nxt.wrapping_add(1)) {
+            if !is_between_wrapped(self.send.una, ackn, self.send.nxt.wrapping_add(1)) {
                 return Ok(());
             }
             self.send.una = ackn;
@@ -282,7 +282,7 @@ impl Connection {
                 } else {
                     true
                 }
-            } else if !Self::is_between_wrapped(self.rcv.nxt.wrapping_sub(1), seq, wend) {
+            } else if !is_between_wrapped(self.rcv.nxt.wrapping_sub(1), seq, wend) {
                 false
             } else {
                 true
@@ -290,8 +290,8 @@ impl Connection {
         } else {
             if self.rcv.wnd == 0 {
                 false
-            } else if !Self::is_between_wrapped(self.rcv.nxt.wrapping_sub(1), seq, wend)
-                && !Self::is_between_wrapped(
+            } else if !is_between_wrapped(self.rcv.nxt.wrapping_sub(1), seq, wend)
+                && !is_between_wrapped(
                     self.rcv.nxt.wrapping_sub(1),
                     seq.wrapping_add(len - 1),
                     wend,
@@ -328,64 +328,19 @@ impl Connection {
     }
 
     //在u32 max为模的情况下，判断三个数的位置
-    fn is_between_wrapped(start: u32, x: u32, end: u32) -> bool {
-        use std::cmp::Ordering;
-        match start.cmp(&x) {
-            Ordering::Equal => return false,
-            Ordering::Less => {
-                // we have:
-                //
-                //   0 |-------------S------X---------------------| (wraparound)
-                //
-                // X is between S and E (S < X < E) in these cases:
-                //
-                //   0 |-------------S------X---E-----------------| (wraparound)
-                //
-                //   0 |----------E--S------X---------------------| (wraparound)
-                //
-                // but *not* in these cases
-                //
-                //   0 |-------------S--E---X---------------------| (wraparound)
-                //
-                //   0 |-------------|------X---------------------| (wraparound)
-                //                   ^-S+E
-                //
-                //   0 |-------------S------|---------------------| (wraparound)
-                //                      X+E-^
-                //
-                // or, in other words, iff !(S <= E <= X)
-                if end >= start && end <= x {
-                    return false;
-                }
-            }
-            Ordering::Greater => {
-                // we have the opposite of above:
-                //
-                //   0 |-------------X------S---------------------| (wraparound)
-                //
-                // X is between S and E (S < X < E) *only* in this case:
-                //
-                //   0 |-------------X--E---S---------------------| (wraparound)
-                //
-                // but *not* in these cases
-                //
-                //   0 |-------------X------S---E-----------------| (wraparound)
-                //
-                //   0 |----------E--X------S---------------------| (wraparound)
-                //
-                //   0 |-------------|------S---------------------| (wraparound)
-                //                   ^-X+E
-                //
-                //   0 |-------------X------|---------------------| (wraparound)
-                //                      S+E-^
-                //
-                // or, in other words, iff S < E < X
-                if end < start && end > x {
-                } else {
-                    return false;
-                }
-            }
-        }
-        true
-    }
+}
+
+fn wrapping_lt(lhs: u32, rhs: u32) -> bool {
+    // From RFC1323(https://datatracker.ietf.org/doc/html/rfc1323 page10  2.3窗口缩放因子选项):
+    //     TCP determines if a data segment is "old" or "new" by testing
+    //     whether its sequence number is within 2**31 bytes of the left edge
+    //     of the window, and if it is not, discarding the data as "old".  To
+    //     insure that new data is never mistakenly considered old and vice-
+    //     versa, the left edge of the sender's window has to be at most
+    //     2**31 away from the right edge of the receiver's window.
+    lhs.wrapping_sub(rhs) > (1 << 31)
+}
+
+fn is_between_wrapped(start: u32, x: u32, end: u32) -> bool {
+    wrapping_lt(start, x) && wrapping_lt(x, end)
 }
